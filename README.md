@@ -22,11 +22,11 @@ npm install
 npm run dist
 ```
 
-产物默认在：`xiaotie/dist/小贴-0.1.0-arm64.dmg`
+产物默认在：`xiaotie/dist/小贴-0.1.1-arm64.dmg`
 
 ## 安装（换电脑）
 
-1. 拷贝 `dist/小贴-0.1.0-arm64.dmg` 到新电脑
+1. 拷贝 `dist/小贴-0.1.1-arm64.dmg` 到新电脑
 2. 双击打开 DMG，把「小贴.app」拖进「Applications」
 3. 首次打开如果提示“无法验证开发者”，用 Finder 右键「打开」一次即可
 

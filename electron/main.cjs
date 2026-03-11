@@ -18,6 +18,7 @@ let tray = null
 let win = null
 let pollTimer = null
 let lastText = ''
+let isQuitting = false
 
 const PANEL_MARGIN = 18
 
@@ -77,13 +78,24 @@ function createWindow() {
     win.loadFile(path.join(app.getAppPath(), 'dist', 'index.html'))
   }
 
+  win.on('close', (e) => {
+    if (isQuitting) return
+    e.preventDefault()
+    win.hide()
+  })
+
   win.on('blur', () => win.hide())
+  win.on('closed', () => {
+    win = null
+  })
 
   return win
 }
 
 function toggleWindow() {
-  if (!win) return
+  if (!win || win.isDestroyed()) {
+    createWindow()
+  }
   if (win.isVisible()) {
     win.hide()
     return
@@ -105,7 +117,9 @@ function toggleWindow() {
 function ensureTray() {
   if (tray) return tray
 
-  const iconPath = path.join(app.getAppPath(), 'src-tauri', 'icons', '32x32.png')
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.icns')
+    : path.join(app.getAppPath(), 'src-tauri', 'icons', '32x32.png')
   const icon = nativeImage.createFromPath(iconPath)
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
   tray.setToolTip('小贴')
@@ -121,7 +135,7 @@ function ensureTray() {
 }
 
 function notifyUpdated() {
-  if (!win) return
+  if (!win || win.isDestroyed()) return
   win.webContents.send('items:updated')
 }
 
@@ -165,7 +179,7 @@ app.whenReady().then(() => {
 })
 
 app.on('activate', () => {
-  if (!win) createWindow()
+  if (!win || win.isDestroyed()) createWindow()
   toggleWindow()
 })
 
@@ -174,6 +188,7 @@ app.on('window-all-closed', (e) => {
 })
 
 app.on('before-quit', () => {
+  isQuitting = true
   if (pollTimer) clearInterval(pollTimer)
   globalShortcut.unregisterAll()
 })
