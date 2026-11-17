@@ -1,8 +1,8 @@
-# ClipKeeper
+# 小贴（Xiaotie）
 
-一个本地运行的 macOS 剪贴板历史工具，原生 Swift（AppKit + SwiftUI）编写，常驻菜单栏。
+一个本地运行的 macOS 剪贴板历史工具，原生 Swift（AppKit + SwiftUI）编写，常驻菜单栏。开源不收费。
 
-所有数据只保存在本机 `~/Library/Application Support/ClipKeeper/`（`history.json` 存文字记录，`images/` 存图片），不联网、不上传。
+所有数据只保存在本机 `~/Library/Application Support/Xiaotie/`（`history.json` 存文字记录，`images/` 存图片），不联网、不上传。
 
 ## 功能
 
@@ -25,7 +25,9 @@ cd xiaotie
 bash build.sh install
 ```
 
-会编译、安装到 `/Applications` 并自动启动。只编译不安装：`bash build.sh`，产物在 `build/ClipKeeper.app`。
+会编译、安装到 `/Applications` 并自动启动。只编译不安装：`bash build.sh`，产物在 `build/小贴.app`。
+
+从旧版本升级：安装时会自动关掉并替换以前的 ClipKeeper 和 Electron 版小贴，历史记录、收藏和设置会自动迁移过来。升级后需要重新开启一次辅助功能权限和「开机自动启动」；系统设置 → 通用 → 登录项 里如果还留着 ClipKeeper，删掉即可。
 
 ## 面板快捷键
 
@@ -58,15 +60,15 @@ bash build.sh install
 - **辅助功能**：自动粘贴需要（系统设置 → 隐私与安全性 → 辅助功能）。不给也能用，选中后内容已在剪贴板里，自己按 `⌘V` 即可。
 - 系统的授权是跟着应用签名走的。`build.sh` 会优先用钥匙串里的开发者证书（Apple Development 等，Xcode 登录过 Apple ID 一般就有）签名，签名固定，以后重新编译不用再授权；第一次用证书签名时系统可能弹窗问 codesign 能否使用钥匙串，选「始终允许」。
 - 没有证书时用本地临时签名，每次重新编译签名都会变，系统设置里旧的授权看着是开的其实已失效。`build.sh install` 会自动清掉失效的授权；也可以点菜单栏里的「⚠️ 辅助功能权限未生效…」重新授权。
-- 苹果预告以后的 macOS 会在应用读取剪贴板时询问权限，看到「允许 ClipKeeper 从其他应用粘贴」之类的提示时选允许。
+- 苹果预告以后的 macOS 会在应用读取剪贴板时询问权限，看到「允许 小贴 从其他应用粘贴」之类的提示时选允许。
 
 ## 卸载
 
-菜单栏图标 → 退出 ClipKeeper，然后删除：
+菜单栏图标 → 退出小贴，然后删除：
 
 ```
-/Applications/ClipKeeper.app
-~/Library/Application Support/ClipKeeper/
+/Applications/小贴.app
+~/Library/Application Support/Xiaotie/
 ```
 
 ## 项目结构

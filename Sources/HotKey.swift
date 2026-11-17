@@ -23,7 +23,7 @@ final class HotKeyCenter {
     func register(keyCode: UInt32, modifiers: UInt32) -> Bool {
         installHandlerIfNeeded()
         unregister()
-        let hotKeyID = EventHotKeyID(signature: OSType(0x434C_4B50), id: 1) // 'CLKP'
+        let hotKeyID = EventHotKeyID(signature: OSType(0x5854_4945), id: 1) // 'XTIE'
         let status = RegisterEventHotKey(keyCode, modifiers, hotKeyID,
                                          GetApplicationEventTarget(), 0, &hotKeyRef)
         return status == OSStatus(noErr)

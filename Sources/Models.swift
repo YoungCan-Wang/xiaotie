@@ -175,6 +175,14 @@ final class AppSettings {
     private let defaults = UserDefaults.standard
 
     private init() {
+        // 以前叫 ClipKeeper 时的设置搬过来（只在新设置还是空的时候）
+        let keys = ["autoPaste", "maxItems", "hotKeyIndex", "paused"]
+        if keys.allSatisfy({ defaults.object(forKey: $0) == nil }),
+           let legacy = UserDefaults(suiteName: "local.clipkeeper.app") {
+            for key in keys {
+                if let value = legacy.object(forKey: key) { defaults.set(value, forKey: key) }
+            }
+        }
         defaults.register(defaults: [
             "autoPaste": true,
             "maxItems": 300,

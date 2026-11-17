@@ -1,7 +1,7 @@
 import AppKit
 import Combine
 
-/// 剪贴板历史，存在 ~/Library/Application Support/ClipKeeper/
+/// 剪贴板历史，存在 ~/Library/Application Support/Xiaotie/
 final class ClipboardStore: ObservableObject {
     static let shared = ClipboardStore()
 
@@ -15,11 +15,36 @@ final class ClipboardStore: ObservableObject {
     private init() {
         let fm = FileManager.default
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        baseURL = support.appendingPathComponent("ClipKeeper", isDirectory: true)
+        baseURL = support.appendingPathComponent("Xiaotie", isDirectory: true)
         imagesURL = baseURL.appendingPathComponent("images", isDirectory: true)
         historyURL = baseURL.appendingPathComponent("history.json")
+        ClipboardStore.migrateLegacyData(from: support.appendingPathComponent("ClipKeeper", isDirectory: true),
+                                         to: baseURL)
         try? fm.createDirectory(at: imagesURL, withIntermediateDirectories: true)
         load()
+    }
+
+    /// 以前叫 ClipKeeper 时的数据搬到新文件夹（只搬一次）
+    private static func migrateLegacyData(from old: URL, to new: URL) {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: new.appendingPathComponent("history.json").path),
+              fm.fileExists(atPath: old.appendingPathComponent("history.json").path) else { return }
+        try? fm.createDirectory(at: new, withIntermediateDirectories: true)
+        for name in ["history.json", "images"] {
+            let src = old.appendingPathComponent(name)
+            let dst = new.appendingPathComponent(name)
+            guard fm.fileExists(atPath: src.path) else { continue }
+            if fm.fileExists(atPath: dst.path) { try? fm.removeItem(at: dst) }
+            do {
+                try fm.moveItem(at: src, to: dst)
+            } catch {
+                NSLog("Xiaotie: 迁移 \(name) 失败 \(error)")
+            }
+        }
+        if let rest = try? fm.contentsOfDirectory(atPath: old.path),
+           rest.filter({ $0 != ".DS_Store" }).isEmpty {
+            try? fm.removeItem(at: old)
+        }
     }
 
     // MARK: 读写磁盘
@@ -60,7 +85,7 @@ final class ClipboardStore: ObservableObject {
             // 只有自己能读
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: historyURL.path)
         } catch {
-            NSLog("ClipKeeper: 保存失败 \(error)")
+            NSLog("Xiaotie: 保存失败 \(error)")
         }
     }
 

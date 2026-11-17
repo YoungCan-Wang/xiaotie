@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>ClipKeeper</string>
+    <string>小贴</string>
     <key>CFBundleDisplayName</key>
-    <string>ClipKeeper</string>
+    <string>小贴</string>
     <key>CFBundleIdentifier</key>
-    <string>local.clipkeeper.app</string>
+    <string>local.xiaotie.app</string>
     <key>CFBundleExecutable</key>
-    <string>ClipKeeper</string>
+    <string>Xiaotie</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.2</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>3</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleDevelopmentRegion</key>

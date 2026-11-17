@@ -1,12 +1,14 @@
 #!/bin/bash
 # 用法：
-#   ./build.sh           编译出 build/ClipKeeper.app
-#   ./build.sh install   编译并安装到 /Applications，然后启动
+#   bash build.sh           编译出 build/小贴.app
+#   bash build.sh install   编译并安装到 /Applications，然后启动
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="ClipKeeper"
-BUNDLE_ID="local.clipkeeper.app"
+APP_NAME="小贴"               # 应用名：/Applications/小贴.app
+EXEC_NAME="Xiaotie"          # 可执行文件名
+BUNDLE_ID="local.xiaotie.app"
+LEGACY_BUNDLE_ID="local.clipkeeper.app"
 APP_DIR="build/${APP_NAME}.app"
 ARCH="$(uname -m)"   # arm64 或 x86_64
 
@@ -21,9 +23,9 @@ mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
 
 swiftc -O \
   -target "${ARCH}-apple-macos13.0" \
-  -module-name "${APP_NAME}" \
+  -module-name "${EXEC_NAME}" \
   Sources/*.swift \
-  -o "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+  -o "${APP_DIR}/Contents/MacOS/${EXEC_NAME}"
 
 cp Resources/Info.plist "${APP_DIR}/Contents/Info.plist"
 
@@ -53,8 +55,15 @@ echo "✅ 编译完成：$(pwd)/${APP_DIR}"
 
 if [[ "${1:-}" == "install" ]]; then
   echo "==> 安装到 /Applications …"
-  pkill -x "${APP_NAME}" 2>/dev/null || true
-  sleep 0.5
+  # 关掉正在运行的旧版本：以前的 ClipKeeper、旧的 Electron 版小贴、上次装的小贴
+  pkill -x ClipKeeper 2>/dev/null || true
+  pkill -f "/Applications/${APP_NAME}.app/" 2>/dev/null || true
+  sleep 0.8
+  if [[ -d "/Applications/ClipKeeper.app" ]]; then
+    rm -rf "/Applications/ClipKeeper.app"
+    tccutil reset Accessibility "${LEGACY_BUNDLE_ID}" >/dev/null 2>&1 || true
+    echo "    已删除旧的 ClipKeeper.app（历史记录和设置会自动搬到小贴）"
+  fi
   # 签名变了的话，系统设置里旧的授权看着是开的，其实已经失效：清掉，让它重新申请
   OLD_REQ="$(codesign -d -r- "/Applications/${APP_NAME}.app" 2>&1 | grep designated || true)"
   NEW_REQ="$(codesign -d -r- "${APP_DIR}" 2>&1 | grep designated || true)"
@@ -65,5 +74,5 @@ if [[ "${1:-}" == "install" ]]; then
   rm -rf "/Applications/${APP_NAME}.app"
   cp -R "${APP_DIR}" "/Applications/"
   open "/Applications/${APP_NAME}.app"
-  echo "✅ 已安装并启动，看看屏幕右上角菜单栏里的剪贴板图标"
+  echo "✅ 小贴已安装并启动，看看屏幕右上角菜单栏里的剪贴板图标"
 fi

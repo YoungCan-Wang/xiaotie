@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let preset = AppSettings.shared.hotKey
         hotKeyOK = HotKeyCenter.shared.register(keyCode: preset.keyCode, modifiers: preset.modifiers)
         if !hotKeyOK {
-            NSLog("ClipKeeper: 快捷键 \(preset.title) 注册失败，可能被别的应用占用")
+            NSLog("Xiaotie: 快捷键 \(preset.title) 注册失败，可能被别的应用占用")
         }
     }
 
@@ -62,10 +62,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "ClipKeeper")
+            let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "小贴")
             image?.isTemplate = true
             button.image = image
-            button.toolTip = "ClipKeeper 剪贴板历史"
+            button.toolTip = "小贴 · 剪贴板历史"
             button.appearsDisabled = AppSettings.shared.paused
         }
         let menu = NSMenu()
@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(action("清空历史（保留收藏）…", #selector(clearHistory)))
         menu.addItem(action("打开数据文件夹", #selector(openDataFolder)))
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "退出 ClipKeeper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "退出小贴", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quit.target = NSApp
         menu.addItem(quit)
     }
@@ -260,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             showAlert("设置开机启动失败",
-                      "\(error.localizedDescription)\n\n建议先把 ClipKeeper.app 放进「应用程序」文件夹再试。")
+                      "\(error.localizedDescription)\n\n建议先把 小贴.app 放进「应用程序」文件夹再试。")
         }
     }
 
@@ -297,12 +297,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // 重新编译后签名变了，系统设置里的旧授权看着是开的其实已失效：先清掉旧记录，再重新申请
         let reset = Process()
         reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-        reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "local.clipkeeper.app"]
+        reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "local.xiaotie.app"]
         do {
             try reset.run()
             reset.waitUntilExit()
         } catch {
-            NSLog("ClipKeeper: tccutil 运行失败 \(error)")
+            NSLog("Xiaotie: tccutil 运行失败 \(error)")
         }
         _ = AutoPaste.isTrusted(prompt: true)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
@@ -326,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "退出 ClipKeeper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "退出小贴", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 

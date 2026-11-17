@@ -6,7 +6,7 @@ final class ClipboardMonitor {
     private let store: ClipboardStore
     private var lastChangeCount: Int
     private var timer: Timer?
-    private let imageQueue = DispatchQueue(label: "clipkeeper.image", qos: .utility)
+    private let imageQueue = DispatchQueue(label: "xiaotie.image", qos: .utility)
 
     /// 密码管理器等应用会用这些类型标记"不要记录"
     private let ignoredTypes: Set<String> = [
