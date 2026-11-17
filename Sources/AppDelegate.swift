@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var monitor = ClipboardMonitor(store: store)
     private lazy var panel = PanelController(store: store)
     private var statusItem: NSStatusItem!
+    private var statusIcon: NSImage?
     private var hotKeyOK = true
     private var promptedAccessibility = false
 
@@ -65,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let image = NSImage(systemSymbolName: "doc.on.clipboard", accessibilityDescription: "小贴")
             image?.isTemplate = true
             button.image = image
+            statusIcon = image
             button.toolTip = "小贴 · 剪贴板历史"
             button.appearsDisabled = AppSettings.shared.paused
         }
@@ -82,9 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if recent.isEmpty {
             menu.addItem(header("还没有记录，复制点什么试试"))
         } else {
-            menu.addItem(header("最近复制"))
+            menu.addItem(header("最近复制（右键或按住 ⌥ 点击可收藏）"))
             for (i, item) in recent.enumerated() {
-                menu.addItem(clipMenuItem(for: item, shortcut: i < 9 ? "\(i + 1)" : ""))
+                addClipItems(for: item, shortcut: i < 9 ? "\(i + 1)" : "", to: menu)
             }
         }
 
@@ -179,20 +181,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item.pinned ? "⭐ " + title : title
     }
 
-    private func clipMenuItem(for item: ClipItem, shortcut: String = "") -> NSMenuItem {
-        let mi = NSMenuItem(title: menuTitle(for: item), action: #selector(pickFromMenu(_:)), keyEquivalent: shortcut)
-        mi.keyEquivalentModifierMask = []
-        mi.target = self
-        mi.representedObject = item.id
-        mi.image = menuImage(for: item)
-        return mi
+    /// 一条历史在菜单里是两项：普通点击粘贴；按住 ⌥ 时换成「收藏 / 取消收藏」
+    private func addClipItems(for item: ClipItem, shortcut: String = "", to menu: NSMenu) {
+        let image = menuImage(for: item)
+
+        let primary = NSMenuItem(title: menuTitle(for: item), action: #selector(pickFromMenu(_:)), keyEquivalent: shortcut)
+        primary.keyEquivalentModifierMask = []
+        primary.target = self
+        primary.representedObject = item.id
+        primary.image = image
+        menu.addItem(primary)
+
+        let limit = 40
+        var short = item.title
+        if short.count > limit { short = String(short.prefix(limit)) + "…" }
+        let alternate = NSMenuItem(title: (item.pinned ? "取消收藏：" : "⭐ 收藏：") + short,
+                                   action: #selector(favoriteFromMenu(_:)), keyEquivalent: shortcut)
+        alternate.keyEquivalentModifierMask = [.option]
+        alternate.isAlternate = true
+        alternate.target = self
+        alternate.representedObject = item.id
+        alternate.image = image
+        menu.addItem(alternate)
     }
 
     private func submenuItem(title: String, items: [ClipItem]) -> NSMenuItem {
         let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let sub = NSMenu()
         for item in items.prefix(30) {
-            sub.addItem(clipMenuItem(for: item))
+            addClipItems(for: item, to: sub)
         }
         if items.count > 30 {
             let more = NSMenuItem(title: "还有 \(items.count - 30) 条，打开面板查看…", action: #selector(openPanel), keyEquivalent: "")
@@ -229,7 +246,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func pickFromMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID,
               let item = store.items.first(where: { $0.id == id }) else { return }
+        // 右键点的就收藏，不粘贴
+        let type = NSApp.currentEvent?.type
+        if type == .rightMouseUp || type == .rightMouseDown {
+            toggleFavoriteFromMenu(id)
+            return
+        }
         pick(item, paste: true, fromPanel: false)
+    }
+
+    @objc private func favoriteFromMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        toggleFavoriteFromMenu(id)
+    }
+
+    private func toggleFavoriteFromMenu(_ id: UUID) {
+        store.toggleFavorite(id: id)
+        let isFavorite = store.items.first(where: { $0.id == id })?.pinned ?? false
+        flashStatusIcon(isFavorite ? "star.fill" : "star.slash")
+    }
+
+    /// 菜单栏图标短暂变成星星，表示收藏成功
+    private func flashStatusIcon(_ symbol: String) {
+        guard let button = statusItem.button else { return }
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        image?.isTemplate = true
+        button.image = image
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
+            self.statusItem.button?.image = self.statusIcon
+        }
     }
 
     @objc private func openPanel() {
