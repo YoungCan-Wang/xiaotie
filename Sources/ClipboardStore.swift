@@ -102,10 +102,88 @@ final class ClipboardStore: ObservableObject {
         scheduleSave()
     }
 
-    func togglePin(id: UUID) {
+    // MARK: 收藏与标签
+
+    func toggleFavorite(id: UUID) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].pinned.toggle()
         trim()
+        scheduleSave()
+    }
+
+    /// 设置一条的标签；打了标签就自动收藏
+    func setTags(id: UUID, tags: [String]) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        var item = items[idx]
+        item.tags = tags.isEmpty ? nil : tags
+        if !tags.isEmpty { item.pinned = true }
+        items[idx] = item
+        scheduleSave()
+    }
+
+    /// 有这个标签就去掉，没有就加上
+    func toggleTag(id: UUID, tag: String) {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        var list = item.tagList
+        if item.hasTag(tag) {
+            list.removeAll { $0.caseInsensitiveCompare(tag) == .orderedSame }
+        } else {
+            list.append(tag)
+        }
+        setTags(id: id, tags: list)
+    }
+
+    /// 所有收藏里用到的标签，按使用次数排序
+    var favoriteTags: [TagCount] {
+        var counts: [String: Int] = [:]
+        var display: [String: String] = [:]
+        for item in items where item.pinned {
+            for tag in item.tagList {
+                let key = tag.lowercased()
+                counts[key, default: 0] += 1
+                if display[key] == nil { display[key] = tag }
+            }
+        }
+        return counts
+            .map { TagCount(name: display[$0.key] ?? $0.key, count: $0.value) }
+            .sorted {
+                if $0.count != $1.count { return $0.count > $1.count }
+                return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+    }
+
+    var favoritesCount: Int { items.filter { $0.pinned }.count }
+
+    var untaggedFavoritesCount: Int { items.filter { $0.pinned && $0.tagList.isEmpty }.count }
+
+    /// 把所有条目里的 old 标签改名为 new（new 已存在则合并）
+    @discardableResult
+    func renameTag(_ old: String, to newText: String) -> String? {
+        guard let newName = TagParser.parse(newText).first else { return nil }
+        var copy = items
+        for i in copy.indices where copy[i].hasTag(old) {
+            var list: [String] = []
+            for tag in copy[i].tagList {
+                let replaced = (tag.caseInsensitiveCompare(old) == .orderedSame) ? newName : tag
+                if !list.contains(where: { $0.caseInsensitiveCompare(replaced) == .orderedSame }) {
+                    list.append(replaced)
+                }
+            }
+            copy[i].tags = list
+        }
+        items = copy
+        scheduleSave()
+        return newName
+    }
+
+    /// 从所有条目里删掉这个标签（条目本身还在收藏里）
+    func deleteTag(_ tag: String) {
+        var copy = items
+        for i in copy.indices where copy[i].hasTag(tag) {
+            let rest = copy[i].tagList.filter { $0.caseInsensitiveCompare(tag) != .orderedSame }
+            copy[i].tags = rest.isEmpty ? nil : rest
+        }
+        items = copy
         scheduleSave()
     }
 
@@ -116,7 +194,7 @@ final class ClipboardStore: ObservableObject {
         scheduleSave()
     }
 
-    /// 清空历史，已固定的保留
+    /// 清空历史，收藏的保留
     func clearUnpinned() {
         let removed = items.filter { !$0.pinned }
         items.removeAll { !$0.pinned }
@@ -124,7 +202,7 @@ final class ClipboardStore: ObservableObject {
         scheduleSave()
     }
 
-    /// 未固定的条目超过上限就删掉最旧的
+    /// 未收藏的条目超过上限就删掉最旧的
     func trim() {
         let limit = AppSettings.shared.maxItems
         var unpinned = 0

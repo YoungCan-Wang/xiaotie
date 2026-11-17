@@ -1,11 +1,14 @@
 import AppKit
+import Combine
 import SwiftUI
 
 enum PanelLayout {
-    static let width: CGFloat = 780
-    static let height: CGFloat = 480
-    static let listWidth: CGFloat = 400
+    static let width: CGFloat = 820
+    static let height: CGFloat = 500
+    static let listWidth: CGFloat = 420
     static let cornerRadius: CGFloat = 14
+    static let searchPlaceholder = "搜索剪贴板历史，#标签 按分类筛选"
+    static let editorPlaceholder = "输入标签，用空格或逗号分隔"
 }
 
 /// 不抢焦点的浮动面板：弹出时原来的应用仍然是前台，选完直接粘贴到原应用
@@ -14,20 +17,41 @@ final class FloatingPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// 面板的状态：搜索词、当前选中、全部/已固定
+/// 面板的状态：搜索词、当前选中、全部/收藏、标签筛选、标签编辑
 final class PanelModel: ObservableObject {
     enum Scope: Hashable {
         case all
-        case pinned
+        case favorites
+    }
+
+    enum TagFilter: Hashable {
+        case any
+        case untagged
+        case tag(String)
+    }
+
+    enum EditorMode: Equatable {
+        case itemTags(UUID)
+        case renameTag(String)
     }
 
     @Published var query: String = "" {
         didSet { if query != oldValue { selection = 0 } }
     }
     @Published var scope: Scope = .all {
-        didSet { if scope != oldValue { selection = 0 } }
+        didSet {
+            if scope != oldValue {
+                selection = 0
+                tagFilter = .any
+            }
+        }
+    }
+    @Published var tagFilter: TagFilter = .any {
+        didSet { if tagFilter != oldValue { selection = 0 } }
     }
     @Published var selection: Int = 0
+    @Published var editorMode: EditorMode? = nil
+    @Published var editorText: String = ""
 
     let store: ClipboardStore
     /// (条目, 是否自动粘贴)
@@ -37,15 +61,56 @@ final class PanelModel: ObservableObject {
         self.store = store
     }
 
+    var isEditing: Bool { editorMode != nil }
+
+    // MARK: 过滤
+
+    /// 搜索词里 #开头的是标签，其余是普通关键词（都要匹配）
+    private var parsedQuery: (words: [String], tags: [String]) {
+        var words: [String] = []
+        var tags: [String] = []
+        for token in query.split(whereSeparator: { $0.isWhitespace }) {
+            if (token.hasPrefix("#") || token.hasPrefix("＃")) && token.count > 1 {
+                tags.append(String(token.dropFirst()))
+            } else if token != "#" && token != "＃" {
+                words.append(String(token))
+            }
+        }
+        return (words, tags)
+    }
+
     var filtered: [ClipItem] {
         var list = store.items
-        if scope == .pinned { list = list.filter { $0.pinned } }
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return list }
-        return list.filter {
-            $0.searchText.localizedCaseInsensitiveContains(q)
-                || ($0.sourceApp ?? "").localizedCaseInsensitiveContains(q)
+        if scope == .favorites {
+            list = list.filter { $0.pinned }
+            switch tagFilter {
+            case .any:
+                break
+            case .untagged:
+                list = list.filter { $0.tagList.isEmpty }
+            case .tag(let name):
+                list = list.filter { $0.hasTag(name) }
+            }
         }
+
+        let (words, tagQueries) = parsedQuery
+        if !tagQueries.isEmpty {
+            list = list.filter { item in
+                tagQueries.allSatisfy { q in
+                    item.tagList.contains { $0.localizedCaseInsensitiveContains(q) }
+                }
+            }
+        }
+        if !words.isEmpty {
+            list = list.filter { item in
+                words.allSatisfy { w in
+                    item.searchText.localizedCaseInsensitiveContains(w)
+                        || (item.sourceApp ?? "").localizedCaseInsensitiveContains(w)
+                        || item.tagList.contains { $0.localizedCaseInsensitiveContains(w) }
+                }
+            }
+        }
+        return list
     }
 
     var selectedItem: ClipItem? {
@@ -53,16 +118,36 @@ final class PanelModel: ObservableObject {
         return list.indices.contains(selection) ? list[selection] : nil
     }
 
+    /// 收藏页顶部可选的分类：全部、未分类、各个标签
+    var tagFilters: [TagFilter] {
+        var result: [TagFilter] = [.any]
+        if store.untaggedFavoritesCount > 0 { result.append(.untagged) }
+        result.append(contentsOf: store.favoriteTags.map { TagFilter.tag($0.name) })
+        return result
+    }
+
+    // MARK: 操作
+
     func reset() {
         query = ""
         scope = .all
+        tagFilter = .any
         selection = 0
+        editorMode = nil
+        editorText = ""
     }
 
     func move(_ delta: Int) {
         let count = filtered.count
         guard count > 0 else { selection = 0; return }
         selection = min(max(selection + delta, 0), count - 1)
+    }
+
+    func cycleTagFilter(_ delta: Int) {
+        let all = tagFilters
+        let current = all.firstIndex(of: tagFilter) ?? 0
+        let next = (current + delta + all.count) % all.count
+        tagFilter = all[next]
     }
 
     func confirm(index: Int? = nil, paste: Bool = true) {
@@ -72,9 +157,9 @@ final class PanelModel: ObservableObject {
         onPick?(list[i], paste)
     }
 
-    func togglePinSelected() {
+    func toggleFavoriteSelected() {
         guard let item = selectedItem else { return }
-        store.togglePin(id: item.id)
+        store.toggleFavorite(id: item.id)
         clampSelection()
     }
 
@@ -84,9 +169,65 @@ final class PanelModel: ObservableObject {
         clampSelection()
     }
 
+    func deleteTag(_ tag: String) {
+        store.deleteTag(tag)
+        if case .tag(let current) = tagFilter, current.caseInsensitiveCompare(tag) == .orderedSame {
+            tagFilter = .any
+        }
+        clampSelection()
+    }
+
     func clampSelection() {
         let count = filtered.count
         if selection >= count { selection = max(0, count - 1) }
+    }
+
+    // MARK: 标签编辑
+
+    func beginEditTags() {
+        guard let item = selectedItem else { return }
+        beginEditTags(for: item)
+    }
+
+    func beginEditTags(for item: ClipItem) {
+        editorText = item.tagList.isEmpty ? "" : item.tagList.joined(separator: " ") + " "
+        editorMode = .itemTags(item.id)
+    }
+
+    func beginRenameTag(_ tag: String) {
+        editorText = tag
+        editorMode = .renameTag(tag)
+    }
+
+    /// 点已有标签时追加到输入框
+    func appendTagToEditor(_ tag: String) {
+        var list = TagParser.parse(editorText)
+        if !list.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) {
+            list.append(tag)
+        }
+        editorText = list.joined(separator: " ") + " "
+    }
+
+    func commitEditor() {
+        guard let mode = editorMode else { return }
+        switch mode {
+        case .itemTags(let id):
+            store.setTags(id: id, tags: TagParser.parse(editorText))
+        case .renameTag(let old):
+            if let newName = store.renameTag(old, to: editorText),
+               case .tag(let current) = tagFilter,
+               current.caseInsensitiveCompare(old) == .orderedSame {
+                tagFilter = .tag(newName)
+            }
+        }
+        editorMode = nil
+        editorText = ""
+        clampSelection()
+    }
+
+    func cancelEditor() {
+        editorMode = nil
+        editorText = ""
     }
 }
 
@@ -96,6 +237,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let panel: FloatingPanel
     private let hostingView: NSHostingView<AnyView>
     private var keyMonitor: Any?
+    private var editorObserver: AnyCancellable?
 
     init(store: ClipboardStore) {
         self.store = store
@@ -138,6 +280,16 @@ final class PanelController: NSObject, NSWindowDelegate {
             hostingView.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
         panel.contentView = effect
+
+        // 打开/关闭标签编辑框时，把键盘焦点切过去/切回搜索框
+        editorObserver = model.$editorMode
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] editing in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                    self?.focusTextField(editor: editing)
+                }
+            }
     }
 
     // MARK: 显示 / 隐藏
@@ -156,7 +308,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         installKeyMonitor()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.focusSearchField()
+            self?.focusTextField(editor: false)
             self?.panel.invalidateShadow()
         }
     }
@@ -164,6 +316,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     func hide() {
         guard panel.isVisible else { return }
         removeKeyMonitor()
+        model.cancelEditor()
         panel.orderOut(nil)
     }
 
@@ -185,19 +338,25 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
     }
 
-    private func focusSearchField() {
-        guard let field = findTextField(in: panel.contentView) else { return }
-        if let editor = panel.firstResponder as? NSTextView, editor.delegate === field { return }
-        panel.makeFirstResponder(field)
+    /// 把焦点放到搜索框（editor = false）或标签输入框（editor = true）
+    private func focusTextField(editor: Bool) {
+        guard panel.isVisible else { return }
+        var fields: [NSTextField] = []
+        collectTextFields(in: panel.contentView, into: &fields)
+        guard !fields.isEmpty else { return }
+        let placeholder = editor ? PanelLayout.editorPlaceholder : PanelLayout.searchPlaceholder
+        let fallback = editor ? fields.last : fields.first
+        guard let target = fields.first(where: { $0.placeholderString == placeholder }) ?? fallback else { return }
+        if let current = panel.firstResponder as? NSTextView, current.delegate === target { return }
+        panel.makeFirstResponder(target)
     }
 
-    private func findTextField(in view: NSView?) -> NSTextField? {
-        guard let view = view else { return nil }
-        if let tf = view as? NSTextField, tf.isEditable { return tf }
+    private func collectTextFields(in view: NSView?, into result: inout [NSTextField]) {
+        guard let view = view else { return }
+        if let tf = view as? NSTextField, tf.isEditable { result.append(tf) }
         for sub in view.subviews {
-            if let found = findTextField(in: sub) { return found }
+            collectTextFields(in: sub, into: &result)
         }
-        return nil
     }
 
     // MARK: 键盘
@@ -227,6 +386,26 @@ final class PanelController: NSObject, NSWindowDelegate {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
 
+        // 标签编辑框打开时：回车保存、Esc 取消，其余按键交给输入框
+        if model.isEditing {
+            switch event.keyCode {
+            case 53:
+                model.cancelEditor()
+                return true
+            case 36, 76:
+                model.commitEditor()
+                return true
+            case 48:
+                return true
+            default:
+                break
+            }
+            if flags.contains(.command) {
+                return handleEditingShortcut(chars, flags: flags) ?? true
+            }
+            return false
+        }
+
         switch event.keyCode {
         case 53: // Esc
             hide()
@@ -243,11 +422,17 @@ final class PanelController: NSObject, NSWindowDelegate {
         case 116: // Page Up
             model.move(-8)
             return true
+        case 123, 124: // ← → 在收藏页、搜索框为空时切换分类
+            if model.scope == .favorites && model.query.isEmpty {
+                model.cycleTagFilter(event.keyCode == 123 ? -1 : 1)
+                return true
+            }
+            return false
         case 36, 76: // Return / Enter，按住 Shift 只复制不粘贴
             model.confirm(paste: !flags.contains(.shift))
             return true
-        case 48: // Tab 切换 全部 / 已固定
-            model.scope = (model.scope == .all) ? .pinned : .all
+        case 48: // Tab 切换 全部 / 收藏
+            model.scope = (model.scope == .all) ? .favorites : .all
             return true
         default:
             break
@@ -261,8 +446,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
 
         switch chars {
-        case "p":
-            model.togglePinSelected()
+        case "s":
+            model.toggleFavoriteSelected()
+            return true
+        case "t":
+            model.beginEditTags()
             return true
         case "d":
             model.deleteSelected()
@@ -270,7 +458,14 @@ final class PanelController: NSObject, NSWindowDelegate {
         case "w":
             hide()
             return true
-        // 这个应用没有可见的菜单栏，搜索框里的编辑快捷键手动转发
+        default:
+            return handleEditingShortcut(chars, flags: flags) ?? false
+        }
+    }
+
+    /// 这个应用没有可见的菜单栏，输入框里的编辑快捷键手动转发；不是编辑快捷键返回 nil
+    private func handleEditingShortcut(_ chars: String, flags: NSEvent.ModifierFlags) -> Bool? {
+        switch chars {
         case "v":
             return NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
         case "c":
@@ -283,7 +478,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             let sel = flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
             return NSApp.sendAction(sel, to: nil, from: nil)
         default:
-            return false
+            return nil
         }
     }
 

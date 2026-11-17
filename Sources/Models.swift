@@ -23,9 +23,20 @@ struct ClipItem: Codable, Identifiable, Equatable {
     var pinned: Bool = false
     var sourceApp: String? = nil
     var sourceBundleID: String? = nil
+    /// 收藏的标签（分类），可以有多个
+    var tags: [String]? = nil
 }
 
 extension ClipItem {
+    /// pinned 字段沿用旧名字，界面上叫「收藏」
+    var isFavorite: Bool { pinned }
+
+    var tagList: [String] { tags ?? [] }
+
+    func hasTag(_ tag: String) -> Bool {
+        tagList.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+    }
+
     /// 列表里显示的单行标题
     var title: String {
         switch kind {
@@ -78,6 +89,33 @@ extension ClipItem {
         if let app = sourceApp, !app.isEmpty { parts.append(app) }
         parts.append(Formatters.relative(date))
         return parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - 标签
+
+/// 标签和它被多少条收藏用到
+struct TagCount: Identifiable, Hashable {
+    let name: String
+    let count: Int
+    var id: String { name.lowercased() }
+}
+
+enum TagParser {
+    static let maxLength = 20
+
+    /// "工作, 代码 #常用" → ["工作", "代码", "常用"]，去重（不区分大小写）
+    static func parse(_ text: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",，、;；#＃").union(.whitespacesAndNewlines)
+        var result: [String] = []
+        for raw in text.components(separatedBy: separators) {
+            let tag = String(raw.trimmingCharacters(in: .whitespaces).prefix(maxLength))
+            guard !tag.isEmpty else { continue }
+            if !result.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) {
+                result.append(tag)
+            }
+        }
+        return result
     }
 }
 

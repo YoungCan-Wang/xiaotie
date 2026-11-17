@@ -84,15 +84,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             menu.addItem(header("最近复制"))
             for (i, item) in recent.enumerated() {
-                let mi = NSMenuItem(title: menuTitle(for: item),
-                                    action: #selector(pickFromMenu(_:)),
-                                    keyEquivalent: i < 9 ? "\(i + 1)" : "")
-                mi.keyEquivalentModifierMask = []
-                mi.target = self
-                mi.representedObject = item.id
-                mi.image = menuImage(for: item)
-                menu.addItem(mi)
+                menu.addItem(clipMenuItem(for: item, shortcut: i < 9 ? "\(i + 1)" : ""))
             }
+        }
+
+        // 收藏，按标签分类
+        let favorites = store.items.filter { $0.pinned }
+        if !favorites.isEmpty {
+            menu.addItem(.separator())
+            let favItem = NSMenuItem(title: "收藏（\(favorites.count)）", action: nil, keyEquivalent: "")
+            let favMenu = NSMenu()
+            for tag in store.favoriteTags {
+                let list = favorites.filter { $0.hasTag(tag.name) }
+                favMenu.addItem(submenuItem(title: "#\(tag.name)（\(tag.count)）", items: list))
+            }
+            let untagged = favorites.filter { $0.tagList.isEmpty }
+            if !untagged.isEmpty {
+                if favMenu.numberOfItems > 0 { favMenu.addItem(.separator()) }
+                favMenu.addItem(submenuItem(title: "未分类（\(untagged.count)）", items: untagged))
+            }
+            favItem.submenu = favMenu
+            menu.addItem(favItem)
         }
 
         menu.addItem(.separator())
@@ -134,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(maxItem)
 
         menu.addItem(.separator())
-        menu.addItem(action("清空历史（保留已固定）…", #selector(clearHistory)))
+        menu.addItem(action("清空历史（保留收藏）…", #selector(clearHistory)))
         menu.addItem(action("打开数据文件夹", #selector(openDataFolder)))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出 ClipKeeper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -164,7 +176,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let limit = 46
         var title = item.title
         if title.count > limit { title = String(title.prefix(limit)) + "…" }
-        return item.pinned ? "📌 " + title : title
+        return item.pinned ? "⭐ " + title : title
+    }
+
+    private func clipMenuItem(for item: ClipItem, shortcut: String = "") -> NSMenuItem {
+        let mi = NSMenuItem(title: menuTitle(for: item), action: #selector(pickFromMenu(_:)), keyEquivalent: shortcut)
+        mi.keyEquivalentModifierMask = []
+        mi.target = self
+        mi.representedObject = item.id
+        mi.image = menuImage(for: item)
+        return mi
+    }
+
+    private func submenuItem(title: String, items: [ClipItem]) -> NSMenuItem {
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        for item in items.prefix(30) {
+            sub.addItem(clipMenuItem(for: item))
+        }
+        if items.count > 30 {
+            let more = NSMenuItem(title: "还有 \(items.count - 30) 条，打开面板查看…", action: #selector(openPanel), keyEquivalent: "")
+            more.target = self
+            sub.addItem(more)
+        }
+        parent.submenu = sub
+        return parent
     }
 
     private func menuImage(for item: ClipItem) -> NSImage? {
@@ -245,7 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "清空剪贴板历史？"
-        alert.informativeText = "已固定的内容会保留，其余记录会被删除，无法恢复。"
+        alert.informativeText = "收藏的内容（包括标签）会保留，其余记录会被删除，无法恢复。"
         alert.addButton(withTitle: "清空")
         alert.addButton(withTitle: "取消")
         if alert.runModal() == .alertFirstButtonReturn {
