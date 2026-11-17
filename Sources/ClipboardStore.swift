@@ -1,0 +1,156 @@
+import AppKit
+import Combine
+
+/// 剪贴板历史，存在 ~/Library/Application Support/ClipKeeper/
+final class ClipboardStore: ObservableObject {
+    static let shared = ClipboardStore()
+
+    @Published private(set) var items: [ClipItem] = []
+
+    let baseURL: URL
+    let imagesURL: URL
+    private let historyURL: URL
+    private var pendingSave: DispatchWorkItem?
+
+    private init() {
+        let fm = FileManager.default
+        let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        baseURL = support.appendingPathComponent("ClipKeeper", isDirectory: true)
+        imagesURL = baseURL.appendingPathComponent("images", isDirectory: true)
+        historyURL = baseURL.appendingPathComponent("history.json")
+        try? fm.createDirectory(at: imagesURL, withIntermediateDirectories: true)
+        load()
+    }
+
+    // MARK: 读写磁盘
+
+    private func load() {
+        let fm = FileManager.default
+        guard let data = try? Data(contentsOf: historyURL) else { return }
+        do {
+            items = try JSONDecoder().decode([ClipItem].self, from: data)
+        } catch {
+            // 文件损坏：备份一份，别直接覆盖
+            let backup = baseURL.appendingPathComponent("history.broken-\(Int(Date().timeIntervalSince1970)).json")
+            try? fm.moveItem(at: historyURL, to: backup)
+            return
+        }
+        // 清理没人引用的图片文件
+        let referenced = Set(items.compactMap { $0.imageFile })
+        if let files = try? fm.contentsOfDirectory(atPath: imagesURL.path) {
+            for name in files where !referenced.contains(name) {
+                try? fm.removeItem(at: imagesURL.appendingPathComponent(name))
+            }
+        }
+    }
+
+    func scheduleSave() {
+        pendingSave?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveNow() }
+        pendingSave = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: work)
+    }
+
+    func saveNow() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        guard let data = try? JSONEncoder().encode(items) else { return }
+        do {
+            try data.write(to: historyURL, options: .atomic)
+            // 只有自己能读
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: historyURL.path)
+        } catch {
+            NSLog("ClipKeeper: 保存失败 \(error)")
+        }
+    }
+
+    // MARK: 增删改
+
+    func imageURL(for item: ClipItem) -> URL? {
+        guard let name = item.imageFile else { return nil }
+        return imagesURL.appendingPathComponent(name)
+    }
+
+    /// 如果已经有相同内容，就把它挪到最前面并返回 true
+    @discardableResult
+    func bumpExisting(hash: String, sourceApp: String?, bundleID: String?) -> Bool {
+        guard let idx = items.firstIndex(where: { $0.contentHash == hash }) else { return false }
+        var item = items.remove(at: idx)
+        item.date = Date()
+        if let app = sourceApp { item.sourceApp = app }
+        if let bid = bundleID { item.sourceBundleID = bid }
+        items.insert(item, at: 0)
+        scheduleSave()
+        return true
+    }
+
+    func add(_ item: ClipItem) {
+        if bumpExisting(hash: item.contentHash, sourceApp: item.sourceApp, bundleID: item.sourceBundleID) {
+            if let name = item.imageFile { removeImage(named: name) }
+            return
+        }
+        items.insert(item, at: 0)
+        trim()
+        scheduleSave()
+    }
+
+    func bump(id: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        var item = items.remove(at: idx)
+        item.date = Date()
+        items.insert(item, at: 0)
+        scheduleSave()
+    }
+
+    func togglePin(id: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].pinned.toggle()
+        trim()
+        scheduleSave()
+    }
+
+    func delete(id: UUID) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        let item = items.remove(at: idx)
+        cleanup(item)
+        scheduleSave()
+    }
+
+    /// 清空历史，已固定的保留
+    func clearUnpinned() {
+        let removed = items.filter { !$0.pinned }
+        items.removeAll { !$0.pinned }
+        removed.forEach { cleanup($0) }
+        scheduleSave()
+    }
+
+    /// 未固定的条目超过上限就删掉最旧的
+    func trim() {
+        let limit = AppSettings.shared.maxItems
+        var unpinned = 0
+        var keep: [ClipItem] = []
+        var removed: [ClipItem] = []
+        for item in items {
+            if item.pinned {
+                keep.append(item)
+                continue
+            }
+            unpinned += 1
+            if unpinned <= limit { keep.append(item) } else { removed.append(item) }
+        }
+        guard !removed.isEmpty else { return }
+        items = keep
+        removed.forEach { cleanup($0) }
+        scheduleSave()
+    }
+
+    private func cleanup(_ item: ClipItem) {
+        if let name = item.imageFile { removeImage(named: name) }
+    }
+
+    private func removeImage(named name: String) {
+        let url = imagesURL.appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: url)
+        ImageCache.shared.evict(url)
+    }
+}
