@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(header("⚠️ \(settings.hotKey.title) 被其他应用占用了，请换一个快捷键"))
         }
         if settings.autoPaste && !AutoPaste.isTrusted(prompt: false) {
-            menu.addItem(action("⚠️ 自动粘贴需要「辅助功能」权限，点这里去开启…", #selector(openAccessibilitySettings)))
+            menu.addItem(action("⚠️ 辅助功能权限未生效，自动粘贴用不了，点这里重新授权…", #selector(openAccessibilitySettings)))
         }
 
         menu.addItem(.separator())
@@ -294,6 +294,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openAccessibilitySettings() {
+        // 重新编译后签名变了，系统设置里的旧授权看着是开的其实已失效：先清掉旧记录，再重新申请
+        let reset = Process()
+        reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        reset.arguments = ["reset", "Accessibility", Bundle.main.bundleIdentifier ?? "local.clipkeeper.app"]
+        do {
+            try reset.run()
+            reset.waitUntilExit()
+        } catch {
+            NSLog("ClipKeeper: tccutil 运行失败 \(error)")
+        }
         _ = AutoPaste.isTrusted(prompt: true)
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)

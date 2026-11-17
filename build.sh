@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="ClipKeeper"
+BUNDLE_ID="local.clipkeeper.app"
 APP_DIR="build/${APP_NAME}.app"
 ARCH="$(uname -m)"   # arm64 或 x86_64
 
@@ -36,8 +37,17 @@ else
   echo "    图标生成失败（不影响使用）"
 fi
 
-echo "==> 本地签名…"
-codesign --force --deep --sign - "${APP_DIR}" >/dev/null 2>&1 || echo "    签名失败（不影响本机使用）"
+echo "==> 签名…"
+# 优先用钥匙串里的开发者证书签名：签名身份固定，以后重新编译「辅助功能」权限不会失效。
+# 没有证书就用本地临时签名，每次重新编译后需要重新开启一次权限。
+IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+  | awk '/Apple Development|Mac Developer|Developer ID Application/ {print $2; exit}' || true)"
+if [[ -n "${IDENTITY}" ]] && codesign --force --deep --sign "${IDENTITY}" "${APP_DIR}" >/dev/null 2>&1; then
+  echo "    已用开发者证书签名，以后重新编译不用再授权"
+else
+  codesign --force --deep --sign - "${APP_DIR}" >/dev/null 2>&1 || echo "    签名失败（不影响本机使用）"
+  echo "    没找到开发者证书，用的本地临时签名：每次重新编译后要重新开启辅助功能权限"
+fi
 
 echo "✅ 编译完成：$(pwd)/${APP_DIR}"
 
@@ -45,6 +55,13 @@ if [[ "${1:-}" == "install" ]]; then
   echo "==> 安装到 /Applications …"
   pkill -x "${APP_NAME}" 2>/dev/null || true
   sleep 0.5
+  # 签名变了的话，系统设置里旧的授权看着是开的，其实已经失效：清掉，让它重新申请
+  OLD_REQ="$(codesign -d -r- "/Applications/${APP_NAME}.app" 2>&1 | grep designated || true)"
+  NEW_REQ="$(codesign -d -r- "${APP_DIR}" 2>&1 | grep designated || true)"
+  if [[ "${OLD_REQ}" != "${NEW_REQ}" ]]; then
+    tccutil reset Accessibility "${BUNDLE_ID}" >/dev/null 2>&1 || true
+    echo "    签名有变化，已清掉旧的辅助功能授权，启动后点菜单栏里的提示重新开启一次"
+  fi
   rm -rf "/Applications/${APP_NAME}.app"
   cp -R "${APP_DIR}" "/Applications/"
   open "/Applications/${APP_NAME}.app"
