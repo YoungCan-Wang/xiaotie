@@ -39,6 +39,13 @@ struct HistoryView: View {
                     .onTapGesture { model.cancelEditor() }
                 editorCard
             }
+
+            if model.confirmingClear {
+                Color.black.opacity(0.28)
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.cancelClearAll() }
+                clearCard
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: PanelLayout.cornerRadius, style: .continuous))
@@ -72,6 +79,17 @@ struct HistoryView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 130)
+            Button {
+                model.beginClearAll()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 26, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("删除全部历史（保留收藏）⌘⇧⌫")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -275,6 +293,45 @@ struct HistoryView: View {
         }
         .padding(18)
         .frame(width: 440)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 18, y: 6)
+    }
+
+    // MARK: 删除全部的确认卡片
+
+    private var clearCard: some View {
+        let deletable = model.deletableCount
+        let kept = store.favoritesCount
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(deletable > 0 ? "删除全部历史？" : "没有可删除的记录")
+                .font(.system(size: 14, weight: .semibold))
+            Text(deletable > 0
+                 ? "将删除 \(deletable) 条记录，收藏的 \(kept) 条（包括标签）会保留。删除后无法恢复。"
+                 : "除了收藏的 \(kept) 条，历史里已经没有别的内容了。")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(deletable > 0 ? "⏎ 删除   esc 取消" : "esc 关闭")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("取消") { model.cancelClearAll() }
+                if deletable > 0 {
+                    Button("删除") { model.confirmClearAll() }
+                        .foregroundColor(.red)
+                }
+            }
+        }
+        .padding(18)
+        .frame(width: 400)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))

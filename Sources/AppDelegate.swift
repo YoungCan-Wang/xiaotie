@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(maxItem)
 
         menu.addItem(.separator())
-        menu.addItem(action("清空历史（保留收藏）…", #selector(clearHistory)))
+        menu.addItem(action("删除全部历史（保留收藏）…", #selector(clearHistory)))
         menu.addItem(action("打开数据文件夹", #selector(openDataFolder)))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出小贴", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -324,12 +324,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func clearHistory() {
+        let deletable = store.items.filter { !$0.pinned }.count
+        guard deletable > 0 else {
+            showAlert("没有可删除的记录", "除了收藏的内容，历史里已经没有别的了。")
+            return
+        }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "清空剪贴板历史？"
-        alert.informativeText = "收藏的内容（包括标签）会保留，其余记录会被删除，无法恢复。"
-        alert.addButton(withTitle: "清空")
+        alert.messageText = "删除全部历史？"
+        alert.informativeText = "将删除 \(deletable) 条记录，收藏的 \(store.favoritesCount) 条（包括标签）会保留。删除后无法恢复。"
+        alert.addButton(withTitle: "删除")
         alert.addButton(withTitle: "取消")
+        alert.buttons.first?.hasDestructiveAction = true
         if alert.runModal() == .alertFirstButtonReturn {
             store.clearUnpinned()
         }

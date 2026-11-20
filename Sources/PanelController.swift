@@ -52,6 +52,8 @@ final class PanelModel: ObservableObject {
     @Published var selection: Int = 0
     @Published var editorMode: EditorMode? = nil
     @Published var editorText: String = ""
+    /// 正在确认「删除全部」
+    @Published var confirmingClear = false
 
     let store: ClipboardStore
     /// (条目, 是否自动粘贴)
@@ -135,6 +137,7 @@ final class PanelModel: ObservableObject {
         selection = 0
         editorMode = nil
         editorText = ""
+        confirmingClear = false
     }
 
     func move(_ delta: Int) {
@@ -175,6 +178,25 @@ final class PanelModel: ObservableObject {
             tagFilter = .any
         }
         clampSelection()
+    }
+
+    // MARK: 删除全部（保留收藏）
+
+    var deletableCount: Int { store.items.filter { !$0.pinned }.count }
+
+    func beginClearAll() {
+        guard !isEditing else { return }
+        confirmingClear = true
+    }
+
+    func confirmClearAll() {
+        if deletableCount > 0 { store.clearUnpinned() }
+        confirmingClear = false
+        selection = 0
+    }
+
+    func cancelClearAll() {
+        confirmingClear = false
     }
 
     func clampSelection() {
@@ -317,6 +339,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard panel.isVisible else { return }
         removeKeyMonitor()
         model.cancelEditor()
+        model.cancelClearAll()
         panel.orderOut(nil)
     }
 
@@ -386,6 +409,19 @@ final class PanelController: NSObject, NSWindowDelegate {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
 
+        // 「删除全部」确认框：回车删除、Esc 取消，其余按键忽略
+        if model.confirmingClear {
+            switch event.keyCode {
+            case 53:
+                model.cancelClearAll()
+            case 36, 76:
+                model.confirmClearAll()
+            default:
+                break
+            }
+            return true
+        }
+
         // 标签编辑框打开时：回车保存、Esc 取消，其余按键交给输入框
         if model.isEditing {
             switch event.keyCode {
@@ -439,6 +475,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
 
         guard flags.contains(.command) else { return false }
+
+        if event.keyCode == 51 && flags.contains(.shift) { // ⌘⇧⌫ 删除全部（保留收藏）
+            model.beginClearAll()
+            return true
+        }
 
         if let n = Int(chars), (1...9).contains(n) {
             model.confirm(index: n - 1, paste: true)
